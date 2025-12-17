@@ -5,22 +5,30 @@ import json
 
 def db_spinup(db_name):
     _db_object = sqlite3.connect(db_name)
-    _db_object.cursor().execute("CREATE TABLE IF NOT EXISTS rooms(uuid)")
-    _db_object.cursor().execute("CREATE TABLE IF NOT EXISTS roomdeets(uuid, name, owner)")
+    _db_object.cursor().execute("CREATE TABLE IF NOT EXISTS room(hash, cid, oid, title, datetime, duration)")
     return _db_object
 
-def db_addroom(db_object, dis_channelID, dis_ownerID):
-    room_uuid = str(uuid.uuid4())
-    db_object.cursor().execute("INSERT INTO rooms VALUES (?)", (room_uuid,))
-    db_object.cursor().execute("INSERT INTO roomdeets VALUES (?,?,?)", (room_uuid, dis_channelID, dis_ownerID))
-    db_object.commit()
-    return room_uuid
-
-def db_removeroom(db_object, room_uuid):
-    db_object.cursor().execute("DELETE FROM rooms WHERE uuid=?", (room_uuid,))
-    db_object.cursor().execute("DELETE FROM roomdeets WHERE uuid=?", (room_uuid,))
+def db_addroom(db_object, room_hash, dis_channelID, dis_ownerID, r_title, r_datetime, r_duration):
+    db_object.cursor().execute("INSERT INTO room VALUES (?,?,?,?,?,?)", (room_hash, dis_channelID, dis_ownerID, r_title, r_datetime, r_duration))
     db_object.commit()
 
-def db_getroom(db_object, room_uuid):
-    return db_object.cursor().execute("SELECT * FROM roomdeets WHERE uuid=?", (room_uuid,)).fetchall()
+def db_removeroom(db_object, room_hash):
+    db_object.cursor().execute("DELETE FROM room WHERE hash=?", (room_hash,))
+    db_object.commit()
 
+def db_getroomfromroomhash(db_object, room_hash):
+    return db_object.cursor().execute("SELECT * FROM room WHERE hash=?", (room_hash,)).fetchall()
+
+def db_getroomfromchannelid(db_object, dis_channelID):
+    return db_object.cursor().execute("SELECT * FROM room WHERE cid=?", (dis_channelID,)).fetchall()
+
+def db_setroomname(db_object, room_hash, new_name):
+    db_object.cursor().execute("UPDATE room SET cid=? WHERE hash=?", (new_name, room_hash))
+    db_object.commit()
+    
+def db_getupcominggames(db_object):
+    return db_object.cursor().execute("SELECT * FROM room ORDER BY datetime ASC").fetchmany(size = 10)
+
+# "(hash cid, oid, cn, st, dur)"
+# "date time tz title duration role"
+# "yyyy-mm-dd hh-mm tz title hrs role"
