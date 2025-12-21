@@ -1,5 +1,5 @@
 bot/
-*config.json*
+config.json
 *.sqlite
 
 # Byte-compiled / optimized / DLL files

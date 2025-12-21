@@ -1,0 +1,16 @@
+{
+"config_db": {
+     "db_name": "archibot_db.sqlite"
+},
+"config_bot": {
+     "debug_mode": true
+},
+"config_discord":{
+    "token": "<Discord Bot Token>",
+    "server_id": <Guild ID the bot is watching>,
+    "new_room_catagory_id": <Catagory where new rooms are generated in>,
+    "new_room_schdule_channel_id": <Channel where scheduling commands are accepted from>,
+    "upcoming_events_channel_id": <Channel where the bot picks the next 10 rooms that are about to start>,
+    "admin_channel_id": <Channel where admin commands can be run to overwrite operations of the bot>
+}
+}
