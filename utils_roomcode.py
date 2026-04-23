@@ -84,7 +84,7 @@ def rm_codetohash(room_code):
                 raise ValueError(f"Word '{word}' not found in seed list")
             indices.append(_word_to_index[word])
         
-        # Convert to unique number: index1 * (len^2) + index2 * len + index3
+        # Convert to unique number: index1 * (seedlist_len^2) + index2 * seedlist_len + index3
         hash_value = indices[0] * (seedlist_len ** 2) + indices[1] * seedlist_len + indices[2]
         return hash_value
     
@@ -94,7 +94,7 @@ def rm_codetohash(room_code):
 def rm_hashtocode(hash_value):
     """
     Convert a hash number back to the original room code.
-    Reverses the calculation: hash = index1 * (len^2) + index2 * len + index3
+    Reverses the calculation: hash = index1 * (seedlist_len^2) + index2 * seedlist_len + index3
     """
     try:
         seedlist_len = len(seedlist)

@@ -179,6 +179,13 @@ async def CheckCommandQueue():
 @tasks.loop(seconds=60)
 async def RefreshUpcomingEvents():
     _eventlist = db_getupcominggames(db_object)
+    
+    # If there are no upcoming events, clear the channel and post a message about no events being found.
+    if(len(_eventlist) == 0):
+        await DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).purge()
+        await DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).send(f"No upcoming events found! Create one with `&newroom` in <#{config['config_discord']['new_room_schdule_channel_id']}>!")
+        return
+    
     message = ""
     for event in _eventlist:
         message = message + f"**{event[3]}** - <t:{str(event[4])}:F> ({event[5]} hrs) - Code: {rm_hashtocode(event[0])}\n\n"
