@@ -6,12 +6,17 @@ from datetime import datetime
 from threading import Thread
 
 ## Custom Utilities
-from utils_db import db_spinup, db_addroom, db_removeroom, db_getroomfromroomhash, db_getroomfromchannelid, db_getupcominggames
-from utils_discord import dis_tagmatch, dis_parsefortags
-from utils_roomcode import rm_generatecodewithhash, rm_hashtocode, rm_codetohash
+from utils_db import *
+from utils_discord import *
+from utils_roomcode import*
+
+#from utils_db import db_spinup, db_addroom, db_removeroom, db_getroomfromroomhash, db_getroomfromchannelid, db_getupcominggames, db_setroomdescription
+#from utils_discord import dis_commandCreateNewRoom, dis_tagmatch, dis_parsefortags
+#from utils_roomcode import rm_generatecodewithhash, rm_hashtocode, rm_codetohash
 
 ## Discord
 import discord
+from discord import app_commands
 from discord.ext import tasks
 
 # Initilization and Global Variables 
@@ -19,6 +24,7 @@ from discord.ext import tasks
 intents = discord.Intents.default()
 intents.message_content = True
 DiscordClient = discord.Client(intents=intents)
+DiscordCommands = app_commands.CommandTree(DiscordClient)
 
 ## Global Variables
 config = json.load(open('config.json','r'))
@@ -26,6 +32,9 @@ db_object = None
 DiscordThread = None
 _GlobalServerStop = False
 CommandProcessorThread = None
+
+## Discord held variables
+OpenRooms = []
 
 # Command Processor Class
 ## Used to handle in-console command to help control the bot
@@ -69,14 +78,20 @@ class DiscordNodeClass(Thread):
 
 @DiscordClient.event
 async def on_ready():
+    # Load config and database connection into global variables for use in events and tasks.
     global config
     
+    # Spin up the database connection and store it in a global variable for use in events and tasks.
     global db_object
     db_object = db_spinup(config["config_db"]['db_name'])
     
+    # Sync the command tree to the server to register slash commands.
+    await DiscordCommands.sync(guild=discord.Object(id=config["config_discord"]['server_id']))
     
+    # Finally, print that we're logged in, and start background tasks.
     print(f'[Discord] We have logged in as {DiscordClient.user}')
     CheckCommandQueue.start()
+    CloseInactiveRooms.start()
     RefreshUpcomingEvents.start()
 
 @DiscordClient.event
@@ -168,6 +183,13 @@ async def on_message(message):
                                                        send_messages=True)
         await message.channel.send(f"You have been granted access to the room: {_targetchannel.mention}")
 
+    if message.content.startswith('&editroom '):
+        _messageinfo = [s.strip() for s in (message.content.replace('&editroom','').strip()).split('|')]
+        _roomcode = _messageinfo[0]
+        _roomdescription = _messageinfo[1]
+        db_setroomdescription(db_object, rm_codetohash(_roomcode), _roomdescription)
+        await message.channel.send(f"Room description modified for room code: {_roomcode}")
+      
 @tasks.loop(seconds=1)
 async def CheckCommandQueue():
     global _GlobalServerStop
@@ -175,6 +197,28 @@ async def CheckCommandQueue():
         print("[Discord] Global Stop Triggered, shutting down Discord client...")
         await DiscordClient.close()
         
+@tasks.loop(seconds=10)
+async def CloseInactiveRooms():
+    global db_object
+    _openrooms = DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).category.voice_channels
+        
+    for room in _openrooms:
+        if room.members == [] and room.id in OpenRooms:
+            print("Room has been empty for more than two cycles. Closing room: " + room.name + " (" + str(room.id) + ")")
+            await room.delete(reason="Room has been inactive for more than two cycles.")
+            _queriedrooms = db_getroomfromvoicechannelid(db_object, room.id)
+            if len(_queriedrooms) == 0:
+                print("No database record found for room: " + room.name + " (" + str(room.id) + ") - Likely ad-hoc VC.")
+                continue
+            db_setVCchannelID(db_object, _queriedrooms[0][0], None)
+        else:
+            if room.members == []:
+                print("No one in room: " + room.name + " (" + str(room.id) + ")")
+                if room.id not in OpenRooms:
+                    OpenRooms.append(room.id)
+            else:
+                if room.id in OpenRooms:
+                    OpenRooms.remove(room.id)
 
 @tasks.loop(seconds=60)
 async def RefreshUpcomingEvents():
@@ -186,13 +230,32 @@ async def RefreshUpcomingEvents():
         await DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).send(f"No upcoming events found! Create one with `&newroom` in <#{config['config_discord']['new_room_schdule_channel_id']}>!")
         return
     
-    message = ""
-    for event in _eventlist:
-        message = message + f"**{event[3]}** - <t:{str(event[4])}:F> ({event[5]} hrs) - Code: {rm_hashtocode(event[0])}\n\n"
-        
     await DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).purge()
-    await DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).send(message)
+    
+    for event in _eventlist:
+        message = ""
+        message = message + f"**{event[4]}** - <t:{str(event[5])}:F> ({event[6]} hrs) - Code: **{rm_hashtocode(event[0])}**\n"
+        if event[8] != None:
+            message = message + f"- *{event[8]}*\n\n"
+        await DiscordClient.get_channel(int(config["config_discord"]['upcoming_events_channel_id'])).send(message)
 
+@DiscordCommands.command(name="new-event",
+    description="Creates a new room event with the given title, datetime, and duration.",
+    guild=discord.Object(id=config["config_discord"]['server_id'])
+)
+async def first_command(interaction,title:str,start_time:str,duration:str,description:str=None):
+    global db_object
+    Status = await dis_commandCreateNewRoom(DiscordClient, db_object, int(config["config_discord"]['new_room_schdule_channel_id']), interaction.user.id, title, start_time, duration, description)
+    await interaction.response.send_message(content=Status,ephemeral=True,delete_after=60)
+
+@DiscordCommands.command(name="start-vc",
+    description="Creates a voice channel for this room. Only the room owner can use this command.",
+    guild=discord.Object(id=config["config_discord"]['server_id'])
+)
+async def first_command(interaction):
+    global db_object
+    Status = await dis_commandStartVC(DiscordClient, config["config_discord"]['new_room_catagory_id'], db_object, interaction)
+    await interaction.response.send_message(content=Status)
 
 # END Discord Bot Class, Events, and Tasks
 
